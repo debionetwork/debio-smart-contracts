@@ -1,4 +1,5 @@
 # Escrow
+
 ## How it Works
 - Customer pays to escrow, inserting order detail data
 - When Lab fulfills order at substrate blockchain, backend receives order fulfilled event
@@ -9,7 +10,6 @@
   - On dnaSample rejected backend triggers Escrow.refundOrder:
     - Transfer QC payment to *Lab*
     - Transfer Testing payment to *Customer*
-
 ## TODO:
 - [ ] allOrders should only hold order ids
 - [ ] ordersBySellerSubstrateAddress should only hold order ids
