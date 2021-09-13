@@ -27,7 +27,6 @@ async function main() {
     DAITokenAddress,
     process.env.DAOGENICS_WALLET_ADDRESS,
     escrowContract.address,
-    process.env.ESCROW_WALLET_ADDRESS,
   );
   await serviceRequestContract.deployed();
 
