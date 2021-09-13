@@ -1,6 +1,23 @@
 const { expect } = require('chai')
 require("@nomiclabs/hardhat-waffle");
 const { soliditySha3 } = require('web3-utils')
+const { addHours } = require('date-fns')
+
+/**
+ * FLOW
+ *
+ * - [x] User can unstake anytime (the balance will be returned to staker after 144 hours)
+ * - [x] Change Valid Lab Services to Curated Lab Accounts.
+ *      DAOGenics can add the address to curatedLabs mapping
+ *      DAOGenics can remove the address from curatedLabs mapping
+ * - [x] Only lab with addresses in curatedLabs mapping can claim the request
+ * - [x] After request is claimed, customer can trigger processRequest.
+ *   - [x] User pays the remaining fee if needed in Escrow SC
+ *   - [x] If stakingAmount > service price, excess is transferred to user
+ *   - [x] requestService smart contract transfer stakingAmount to escrow smart contract
+ *
+ * The process then continues in escrow smart contract
+ * */
 
 describe('ServiceRequests', function () {
   let contract;
@@ -11,6 +28,11 @@ describe('ServiceRequests', function () {
   const city = "Jakarta";
   const serviceCategory = "Whole-Genome Sequencing";
   const stakingAmount = ethers.utils.parseUnits("10.0");
+
+  // Service Offer Parameters
+  const serviceId = "0xe88f0531fea1654b6a24197ec1025fd7217bb8b19d619bd488105504ec244df8";
+  const testingPrice = ethers.utils.parseUnits("10.0");
+  const qcPrice = ethers.utils.parseUnits("5.0");
 
   let requesterAccount;
   let iDontHaveTokens;
@@ -101,7 +123,6 @@ describe('ServiceRequests', function () {
       erc20.address,
       DAOGenicsAccount.address,
       escrowContract.address,
-      escrowAccount.address
     );
     await contract.deployed();
 
@@ -254,15 +275,84 @@ describe('ServiceRequests', function () {
     expect(stakingAmount.toString()).to.equal(reqByHash.stakingAmount);
   })
 
-  it("Lab can not claim a request if its service has not been validated", async function () {
+  it("Customer can unstake", async function() {
+    const contractWithSigner = contract.connect(requesterAccount)
+    const hashes = await contractWithSigner.getRequestsByRequesterAddress();
+
+    const unstakeTx = await contractWithSigner.unstake(hashes[0])
+    const receipt = await unstakeTx.wait()
+
+    const events = receipt.events.filter((x) => x.event == "ServiceRequestUnstaked");
+    // Expect event unstaked
+    expect(events.length > 0).to.equal(true);
+
+    // Get the request data from the event
+    const req = events[0].args[0]
+    // Expect request status to be UNSTAKED
+    // enum RequestStatus { OPEN, CLAIMED, PROCESSED, UNSTAKED }
+    expect(req.status).to.equal(3)
+    
+    // Expect request unstakedAt field to be set
+    expect(req.unstakedAt == 0).to.equal(false)
+  })
+
+  it("Customer can retrieveUnstakedAmount after 144 hours", async function () {
+
+    const requesterBalanceBefore = await erc20.balanceOf(requesterAccount.address)
+    //console.log('requesterBalanceBefore', requesterBalanceBefore.toString())
+
+    const contractWithSigner = contract.connect(requesterAccount)
+    const hashes = await contractWithSigner.getRequestsByRequesterAddress();
+
+    const requestBefore = await contract.getRequestByHash(hashes[0])
+
+    let retrieveUnstakedTx;
+    let errMsg;
+    try {
+      const retrieveUnstakedTx = await contractWithSigner.retrieveUnstakedAmount(hashes[0])
+    } catch (err) {
+      errMsg = err.message
+    }
+    expect(errMsg).to.equal("VM Exception while processing transaction: reverted with reason string 'Unstaked amount can only be retrieved after six days'");
+
+
+    // Simulate timestamp fast forward in blockchain
+    const unstakedAt = new Date(requestBefore.unstakedAt.toNumber() * 1000)
+    const sixDaysLater = addHours(unstakedAt, 144)
+    await ethers.provider.send("evm_setNextBlockTimestamp", [sixDaysLater.getTime()])
+    await ethers.provider.send("evm_mine")
+
+    retrieveUnstakedTx = await contractWithSigner.retrieveUnstakedAmount(hashes[0])
+    const receipt = await retrieveUnstakedTx.wait()
+
+    const events = receipt.events.filter((x) => x.event == "UnstakedAmountRetrieved");
+    // Expect event UnstakedAmountRetrieved
+    expect(events.length > 0).to.equal(true);
+
+    // Get the request data from the event
+    const requestAfter = events[0].args[0]
+
+    // Expect requesterAccount DAI Balance to increase by unstakedAmount
+    const requesterBalanceAfter = await erc20.balanceOf(requesterAccount.address)
+    expect(requesterBalanceAfter).to.equal(requesterBalanceBefore.add(requestBefore.stakingAmount))
+
+    // Expect request.stakingAmount to be 0
+    expect(requestAfter.stakingAmount).to.equal(0)
+  })
+
+  it("Lab can not claim a request if its not curated", async function () {
     let errMsg
     try {
       const hashes = await contract.getAllRequests()
-      const hashToClaim = hashes[0]
-      //const shouldNotExist = '0xf1616bee22e8d02c7d8996457d26b87dbacb5c115ab47465f1eb5a52f5fc8833'
+      const hashToClaim = hashes[1]
 
       const contractWithSigner = contract.connect(labAccount)
-      const claimRequestTx = await contractWithSigner.claimRequest(hashToClaim)
+      const claimRequestTx = await contractWithSigner.claimRequest(
+        hashToClaim,
+        serviceId,
+        testingPrice,
+        qcPrice,
+      )
       const receipt = await claimRequestTx.wait()
     } catch (err) {
       errMsg = err.message
@@ -270,20 +360,16 @@ describe('ServiceRequests', function () {
     expect(errMsg)
       .to
       .equal(
-        "VM Exception while processing transaction: reverted with reason string 'Lab\'s service has not been validated by DAOGenics'"
+        "VM Exception while processing transaction: reverted with reason string 'Lab has not been curated by DAOGenics'"
       );
   })
 
-  it("Only DAOGenics account can insert into validLabServices mapping", async function () {
-    const serviceCategory = 'Whole-Genome Sequencing'
-    // This serviceId comes from substrate
-    const serviceId = '0xf1616bee22e8d02c7d8996457d26b87dbacb5c115ab47465f1eb5a52f5fc8833'
-    
+  it("Only DAOGenics account can insert into curatedLabs mapping", async function () {
     let errMsg
     try {
       const contractWithSigner = contract.connect(labAccount)   
-      const validateLabServiceTx = await contractWithSigner.validateLabService(labAccount.address, serviceCategory, serviceId)
-      await validateLabServiceTx.wait()
+      const curateLabTx = await contractWithSigner.curateLab(labAccount.address)
+      await curateLabTx.wait()
     } catch (err) {
       errMsg = err.message
     }
@@ -294,42 +380,62 @@ describe('ServiceRequests', function () {
       )
   })
 
-  it("DAOGenics insert into validLabServices mapping", async function () {
-    const serviceCategory = 'Whole-Genome Sequencing'
-    // This serviceId comes from substrate
-    const serviceId = '0xf1616bee22e8d02c7d8996457d26b87dbacb5c115ab47465f1eb5a52f5fc8833'
-
+  it("DAOGenics curate lab", async function () {
     const contractWithSigner = contract.connect(DAOGenicsAccount)   
-    const validateLabServiceTx = await contractWithSigner.validateLabService(labAccount.address, serviceCategory, serviceId)
-    await validateLabServiceTx.wait()
+    const curateLabTx = await contractWithSigner.curateLab(labAccount.address)
+    await curateLabTx.wait()
 
     // wait until transaction is mined
-    const receipt = await validateLabServiceTx.wait();
+    const receipt = await curateLabTx.wait();
     // Get event from receipt
-    const events = receipt.events.filter((x) => x.event == "LabServiceValidated");
+    const events = receipt.events.filter((x) => x.event == "LabCurated");
     expect(events.length > 0).to.equal(true);
     // Get the request data from the event
     const args = events[0].args
     expect(labAccount.address).to.equal(args[0])
-    expect(serviceCategory).to.equal(args[1])
-    expect(serviceId).to.equal(args[2])
   })
 
-  it("Lab claim a request, smart contract emit event RequestClaimed, and update Request status to CLAIMED", async function () {
-    /**
-     * enum RequestStatus { OPEN, CLAIMED, PROCESSED }
-     */
+  it("DAOGenics uncurate lab", async function() {
+    const contractWithSigner = contract.connect(DAOGenicsAccount)   
+    const uncurateLabTx = await contractWithSigner.uncurateLab(labAccount.address)
+    await uncurateLabTx.wait()
+
+    // wait until transaction is mined
+    const receipt = await uncurateLabTx.wait();
+    // Get event from receipt
+    const events = receipt.events.filter((x) => x.event == "LabUnCurated");
+    expect(events.length > 0).to.equal(true);
+    // Get the request data from the event
+    const args = events[0].args
+    expect(labAccount.address).to.equal(args[0])
+
+    const isLabCurated = await contract.curatedLabs(labAccount.address);
+    expect(isLabCurated).to.equal(false);
+  })
+
+  it("Lab claim a request", async function () {
+    // Curate Lab so that it can claim the request
+    let contractWithSigner = contract.connect(DAOGenicsAccount)   
+    const curateLabTx = await contractWithSigner.curateLab(labAccount.address)
+    await curateLabTx.wait()
+
+    // enum RequestStatus { OPEN, CLAIMED, PROCESSED, UNSTAKED }
     const STATUS_OPEN = 0
     const STATUS_CLAIMED = 1
 
     const hashes = await contract.getAllRequests()
-    const hashToClaim = hashes[0]
+    const hashToClaim = hashes[1]
 
-    const contractWithSigner = contract.connect(labAccount)
-    const claimRequestTx = await contractWithSigner.claimRequest(hashToClaim)
+    contractWithSigner = contract.connect(labAccount)
+    const claimRequestTx = await contractWithSigner.claimRequest(
+      hashToClaim,
+      serviceId,
+      testingPrice,
+      qcPrice,
+    )
     const receipt = await claimRequestTx.wait()
 
-    const events = receipt.events.filter(x => x.event == "RequestClaimed")
+    const events = receipt.events.filter(x => x.event == "ServiceRequestClaimed")
     expect(events.length > 0).to.equal(true)
 
     const args = events[0].args
@@ -339,16 +445,27 @@ describe('ServiceRequests', function () {
     const request = await contract.getRequestByHash(hashToClaim)
     expect(request.status).to.equal(STATUS_CLAIMED)
     expect(request.labAddress).to.equal(labAccount.address)
+
+    const serviceOffer = await contract.serviceOfferByRequestHash(hashToClaim)
+    expect(serviceOffer.requestHash).to.equal(hashToClaim)
+    expect(serviceOffer.labAddress).to.equal(labAccount.address)
+    expect(serviceOffer.testingPrice).to.equal(testingPrice)
+    expect(serviceOffer.qcPrice).to.equal(qcPrice)
   })
 
   it("Lab can not claim a request if its already claimed", async function () {
     let errMsg
     try {
       const hashes = await contract.getAllRequests()
-      const hashToClaim = hashes[0]
+      const hashToClaim = hashes[1]
 
       const contractWithSigner = contract.connect(labAccount)
-      const claimRequestTx = await contractWithSigner.claimRequest(hashToClaim)
+      const claimRequestTx = await contractWithSigner.claimRequest(
+        hashToClaim,
+        serviceId,
+        testingPrice,
+        qcPrice,
+      )
       const receipt = await claimRequestTx.wait()
     } catch (err) {
       errMsg = err.message
@@ -358,32 +475,26 @@ describe('ServiceRequests', function () {
       .equal("VM Exception while processing transaction: reverted with reason string 'Request has already been claimed'")
   })
 
-  it("Only escrow account can trigger processRequest", async function () {
+  it("Only requester can processRequest", async function () {
     let errMsg;
     try {
       const hashes = await contract.getAllRequests()
       const hashClaimed = hashes[0]
 
       const orderId = "0xed19fb816f3d4a3d4f46e0445bd68a666647bc5fd77c60c937b170a398c49e51";
-      const serviceId = "0xe88f0531fea1654b6a24197ec1025fd7217bb8b19d619bd488105504ec244df8";
       const customerSubstrateAddress = "5EBs6czjmUy31iawezsude3vudFVfi9gMv6kAHjNeBzzGgvH";
       const sellerSubstrateAddress = "5ESGhRuAhECXu96Pz9L8pwEEd1AeVhStXX67TWE1zHRuvJNU";
       const dnaSampleTrackingId = "Y9JCOABLP16GKHQ14RY9J";
-      const testingPrice = ethers.utils.parseUnits("10.0");
-      const qcPrice = ethers.utils.parseUnits("5.0");
 
       const contractWithSigner = contract.connect(labAccount)
       const processRequestTx = await contractWithSigner.processRequest(
         hashClaimed,
         orderId,
-        serviceId,
         customerSubstrateAddress,
         sellerSubstrateAddress,
         requesterAccount.address, // Customer ETH Address
         labAccount.address, // Lab ETH Address
         dnaSampleTrackingId,
-        testingPrice,
-        qcPrice,
       )
       const receipt = await processRequestTx.wait()
     } catch (err) {
@@ -391,36 +502,32 @@ describe('ServiceRequests', function () {
     }
     expect(errMsg)
       .to
-      .equal("VM Exception while processing transaction: reverted with reason string 'Only escrow admin is authorized to process request'")
+      .equal("VM Exception while processing transaction: reverted with reason string 'Only requester is authorized to process request'")
   })
 
-  it("Escrow account trigger processRequest resulting staking amount with order data sent to Escrow Smart Contract", async function () {
+  it("Requester trigger processRequest resulting staking amount with order data sent to Escrow Smart Contract", async function () {
     const hashes = await contract.getAllRequests()
-    const hashClaimed = hashes[0]
+    const hashClaimed = hashes[1]
 
     const orderId = "0xed19fb816f3d4a3d4f46e0445bd68a666647bc5fd77c60c937b170a398c49e51";
-    const serviceId = "0xe88f0531fea1654b6a24197ec1025fd7217bb8b19d619bd488105504ec244df8";
     const customerSubstrateAddress = "5EBs6czjmUy31iawezsude3vudFVfi9gMv6kAHjNeBzzGgvH";
     const sellerSubstrateAddress = "5ESGhRuAhECXu96Pz9L8pwEEd1AeVhStXX67TWE1zHRuvJNU";
     const dnaSampleTrackingId = "Y9JCOABLP16GKHQ14RY9J";
     const testingPrice = ethers.utils.parseUnits("10.0");
     const qcPrice = ethers.utils.parseUnits("5.0");
 
-    const contractWithSigner = contract.connect(escrowAccount)
+    const contractWithSigner = contract.connect(requesterAccount)
     const processRequestTx = await contractWithSigner.processRequest(
       hashClaimed,
       orderId,
-      serviceId,
       customerSubstrateAddress,
       sellerSubstrateAddress,
       requesterAccount.address, // Customer ETH Address
       labAccount.address, // Lab ETH Address
       dnaSampleTrackingId,
-      testingPrice,
-      qcPrice,
     )
     const receipt = await processRequestTx.wait()
-    const events = receipt.events.filter((x) => x.event == "RequestProcessed");
+    const events = receipt.events.filter((x) => x.event == "ServiceRequestProcessed");
     expect(events.length > 0).to.equal(true);
     
     const args = events[0].args
@@ -475,43 +582,45 @@ describe('ServiceRequests', function () {
 
     const requesterBalanceAfterStaking = await erc20.balanceOf(requesterAccount.address);
     expect(requesterBalanceAfterStaking).to.equal(requesterBalanceStart.sub(stakingAmount))
+
+    const testingPrice = ethers.utils.parseUnits("10.0");
+    const qcPrice = ethers.utils.parseUnits("5.0");
     
     // Lab Claim Request
     const hashToClaim = req.hash
     contractWithSigner = contract.connect(labAccount)
-    const claimRequestTx = await contractWithSigner.claimRequest(hashToClaim)
+    const claimRequestTx = await contractWithSigner.claimRequest(
+        hashToClaim,
+        serviceId,
+        testingPrice,
+        qcPrice,
+    )
     receipt = await claimRequestTx.wait()
 
-    events = receipt.events.filter(x => x.event == "RequestClaimed")
+    events = receipt.events.filter(x => x.event == "ServiceRequestClaimed")
     expect(events.length > 0).to.equal(true)
-    const args = events[0].args
+    let args = events[0].args
     expect(labAccount.address).to.equal(args[0])
     expect(hashToClaim).to.equal(args[1])
 
-    // Escrow Process Request
+    // Process Request Order Data
     const orderId = "0x88106fe2bda681132223a2e7be8958a0698270439b8c75ef68442347e05e1839";
-    const serviceId = "0xe88f0531fea1654b6a24197ec1025fd7217bb8b19d619bd488105504ec244df8";
     const customerSubstrateAddress = "5EBs6czjmUy31iawezsude3vudFVfi9gMv6kAHjNeBzzGgvH";
     const sellerSubstrateAddress = "5ESGhRuAhECXu96Pz9L8pwEEd1AeVhStXX67TWE1zHRuvJNU";
     const dnaSampleTrackingId = "XOSKAIWRASRT04PKXXOSK";
-    const testingPrice = ethers.utils.parseUnits("10.0");
-    const qcPrice = ethers.utils.parseUnits("5.0");
 
-    contractWithSigner = contract.connect(escrowAccount)
+    contractWithSigner = contract.connect(requesterAccount)
     const processRequestTx = await contractWithSigner.processRequest(
       hashToClaim,
       orderId,
-      serviceId,
       customerSubstrateAddress,
       sellerSubstrateAddress,
       requesterAccount.address, // Customer ETH Address
       labAccount.address, // Lab ETH Address
       dnaSampleTrackingId,
-      testingPrice,
-      qcPrice,
     )
     receipt = await processRequestTx.wait()
-    events = receipt.events.filter((x) => x.event == "RequestProcessed");
+    events = receipt.events.filter((x) => x.event == "ServiceRequestProcessed");
     expect(events.length > 0).to.equal(true);
 
     // After request is processed, requester should receive excess staking amount
@@ -520,5 +629,11 @@ describe('ServiceRequests', function () {
     expect(requesterBalanceAfterRequestProcessed)
       .to
       .equal(requesterBalanceAfterStaking.add(refundAmount))
+
+    events = receipt.events.filter((x) => x.event == "ExcessAmountRefunded");
+    args = events[0].args
+    expect(events.length > 0).to.equal(true);
+    expect(args[0].hash).to.equal(hashToClaim)
+    expect(args[1]).to.equal(refundAmount)
   })
 })

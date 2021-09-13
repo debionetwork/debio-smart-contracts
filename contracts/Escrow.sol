@@ -95,6 +95,8 @@ contract Escrow {
     require(testingPrice != 0, "Testing Price cannot be 0");
     require(qcPrice != 0, "QC Price cannot be 0");
 
+    // TODO: Handle overpayment
+
     // Transfer erc20 token from sender to this contract
     require(_token.transferFrom(msg.sender, address(this), payAmount), "Transfer to escrow failed");
 
@@ -107,7 +109,6 @@ contract Escrow {
     if (payAmount == totalPrice) {
       orderStatus = OrderStatus.PAID;
     }
-    // TODO: Handle payment in excess
     
     Order memory order = Order(
       orderId,

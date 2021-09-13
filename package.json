@@ -9,7 +9,8 @@
     "deploy:debio": "npx hardhat run --network debio scripts/deploy-service-request-contract.js",
     "deploy:rinkeby": "npx hardhat run --network rinkeby scripts/deploy-contracts.js",
     "deploy:ropsten": "npx hardhat run --network ropsten scripts/deploy-erc20-contract.js",
-    "inject-data:local": "npx hardhat run --network localhost scripts/inject-service-request-dummy-data.js"
+    "inject-data:local": "npx hardhat run --network localhost scripts/inject-service-request-dummy-data.js",
+    "inject-data:rinkeby": "npx hardhat run --network rinkeby scripts/inject-service-request-dummy-data-rinkeby.js"
   },
   "author": "",
   "license": "ISC",
@@ -24,6 +25,7 @@
     "web3-utils": "^1.5.2"
   },
   "dependencies": {
+    "date-fns": "^2.23.0",
     "dotenv": "^10.0.0"
   }
 }

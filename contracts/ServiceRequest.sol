@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./IEscrow.sol";
 
 contract ServiceRequest {
-  enum RequestStatus { OPEN, CLAIMED, PROCESSED }
+  enum RequestStatus { OPEN, CLAIMED, PROCESSED, UNSTAKED }
 
   struct Request {
     address requesterAddress;
@@ -17,30 +17,38 @@ contract ServiceRequest {
     uint stakingAmount;
     RequestStatus status;
     bytes32 hash;
+    uint256 unstakedAt;
+    bool exists;
+  }
+
+  struct ServiceOffer {
+    bytes32 requestHash;
+    address labAddress;
+    bytes32 serviceId; // Substrate service id
+    uint testingPrice;
+    uint qcPrice;
     bool exists;
   }
 
   IERC20 public _token;
   address public _daoGenics;
   IEscrow public _escrowContract;
-  address public _escrowAdmin;
 
-  constructor(address ERC20Address, address daoGenics, address escrowContract, address escrowAdmin) {
+  constructor(address ERC20Address, address daoGenics, address escrowContract) {
     _token = IERC20(ERC20Address);
     _daoGenics = daoGenics;
     _escrowContract = IEscrow(escrowContract);
-    _escrowAdmin = escrowAdmin;
   }
 
   /**
-  * validLabServices
+  * curatedLabs
   * 
   * This is used to validate whether or not a lab can claim a request
-  * DAOGenics will validate lab's service and insert it to this mapping
+  * DAOGenics will curate a lab and insert it to this mapping
   * 
-  * labID: ethAddress => serviceCategory: string => serviceID: hash
+  * labID: ethAddress => true/false
   */
-  mapping(address => mapping(string => bytes32)) public validLabServices;
+  mapping(address => bool) public curatedLabs;
 
   // total requests count
   uint requestCount;
@@ -58,10 +66,15 @@ contract ServiceRequest {
   // Lab Address -> RequestHash[] - Claimed Requests Hashes
   mapping(address => bytes32[]) public requestsByLabAddress;
 
+  mapping(bytes32 => ServiceOffer) public serviceOfferByRequestHash;
+
   event ServiceRequestCreated(Request request);
-  event LabServiceValidated(address labAddress, string serviceCategory, bytes32 serviceId);
-  event RequestClaimed(address labAddress, bytes32 requestHash);
-  event RequestProcessed(
+  event ServiceRequestUnstaked(Request request);
+  event UnstakedAmountRetrieved(Request request);
+  event LabCurated(address labAddress);
+  event LabUnCurated(address labAddress);
+  event ServiceRequestClaimed(address labAddress, bytes32 requestHash);
+  event ServiceRequestProcessed(
     bytes32 requestHash,
     bytes32 orderId,
     bytes32 serviceId,
@@ -74,6 +87,7 @@ contract ServiceRequest {
     uint qcPrice,
     uint payAmount
   );
+  event ExcessAmountRefunded(Request request, uint excess);
 
   function hashRequest(
     address requesterAddress,
@@ -122,6 +136,7 @@ contract ServiceRequest {
       stakingAmount,
       RequestStatus.OPEN,
       requestHash,
+      0, // unstakedAt
       true
     );
 
@@ -172,46 +187,91 @@ contract ServiceRequest {
     return requestsByLabAddress[msg.sender];
   }
 
-  function validateLabService(address labId, string memory serviceCategory, bytes32 serviceId) external {
-    require(msg.sender == _daoGenics, "Only DAOGenics allowed");
-    validLabServices[labId][serviceCategory] = serviceId;
-    emit LabServiceValidated(labId, serviceCategory, serviceId);
+  function unstake(bytes32 requestHash) external {
+    Request memory request = requestByHash[requestHash];
+    require(request.exists == true, "Request does not exist");
+    require(request.requesterAddress == msg.sender, "Unauthorized");
+
+    request.status = RequestStatus.UNSTAKED;
+    request.unstakedAt = block.timestamp;
+    requestByHash[requestHash] = request;
+
+    emit ServiceRequestUnstaked(request);
   }
 
-  function claimRequest(bytes32 requestHash) external {
+  function retrieveUnstakedAmount(bytes32 requestHash) external {
+    Request memory request = requestByHash[requestHash];
+    require(request.exists == true, "Request does not exist");
+    require(request.requesterAddress == msg.sender, "Unauthorized");
+    
+    // Check if 6 days already passed
+    uint256 sixDays = 3600*144;
+    require((block.timestamp - request.unstakedAt) >= sixDays, "Unstaked amount can only be retrieved after six days");
+
+    // Transfer staking amount to 
+    _token.transfer(msg.sender, request.stakingAmount);
+    request.stakingAmount = 0;
+
+    requestByHash[requestHash] = request;
+
+    emit UnstakedAmountRetrieved(request);
+  }
+
+  function curateLab(address labAddress) external {
+    require(msg.sender == _daoGenics, "Only DAOGenics allowed");
+    curatedLabs[labAddress] = true;
+    emit LabCurated(labAddress);
+  }
+
+  function uncurateLab(address labAddress) external {
+    require(msg.sender == _daoGenics, "Only DAOGenics allowed");
+    curatedLabs[labAddress] = false;
+    emit LabUnCurated(labAddress);
+  }
+
+  function claimRequest(bytes32 requestHash, bytes32 serviceId, uint testingPrice, uint qcPrice) external {
     require(requestByHash[requestHash].exists == true, "Request does not exist");
 
     Request memory request = requestByHash[requestHash];
 
     // Claimer should have their service validated by DAOGenics
-    require(validLabServices[msg.sender][request.serviceCategory] != bytes32(0), "Lab's service has not been validated by DAOGenics");
+    require(curatedLabs[msg.sender] == true, "Lab has not been curated by DAOGenics");
     require(request.status != RequestStatus.CLAIMED, "Request has already been claimed");
 
     requestByHash[requestHash].status = RequestStatus.CLAIMED;
     requestByHash[requestHash].labAddress = msg.sender;
 
-    emit RequestClaimed(msg.sender, requestHash);
+    ServiceOffer memory serviceOffer = ServiceOffer(
+      requestHash,
+      msg.sender,
+      serviceId,
+      testingPrice,
+      qcPrice,
+      true // exists
+    );
+    serviceOfferByRequestHash[requestHash] = serviceOffer;
+
+    emit ServiceRequestClaimed(msg.sender, requestHash);
   }
 
   function processRequest(
     bytes32 requestHash,
     bytes32 orderId,
-    bytes32 serviceId,
     string memory customerSubstrateAddress,
     string memory sellerSubstrateAddress,
     address customerAddress,
     address sellerAddress,
-    string memory dnaSampleTrackingId,
-    uint testingPrice,
-    uint qcPrice
+    string memory dnaSampleTrackingId
   ) external {
-    // Only escrow admin account should be able to call this function
-    require(msg.sender == _escrowAdmin, "Only escrow admin is authorized to process request");
     require(requestByHash[requestHash].exists == true, "Request does not exist");
+    require(msg.sender == requestByHash[requestHash].requesterAddress, "Only requester is authorized to process request");
+    require(requestByHash[requestHash].status != RequestStatus.UNSTAKED, "Request is already unstaked");
+    require(serviceOfferByRequestHash[requestHash].exists == true, "There are no offer for this request yet");
 
-    Request memory request = requestByHash[requestHash];
 
-    uint payAmount = request.stakingAmount;
+    uint payAmount = requestByHash[requestHash].stakingAmount;
+    uint testingPrice = serviceOfferByRequestHash[requestHash].testingPrice;
+    uint qcPrice = serviceOfferByRequestHash[requestHash].qcPrice;
 
     // Refund excess payment
     uint totalPrice = testingPrice + qcPrice;
@@ -219,6 +279,7 @@ contract ServiceRequest {
       uint excess = payAmount - totalPrice; 
       if (excess > 0) {
         _token.transfer(customerAddress, excess);
+        emit ExcessAmountRefunded(requestByHash[requestHash], excess);
       }
       payAmount = payAmount - excess;
     }
@@ -226,7 +287,7 @@ contract ServiceRequest {
 
     _escrowContract.payOrder(
       orderId,
-      serviceId,
+      serviceOfferByRequestHash[requestHash].serviceId,
       customerSubstrateAddress,
       sellerSubstrateAddress,
       customerAddress,
@@ -237,14 +298,12 @@ contract ServiceRequest {
       payAmount
     );
 
-    request.status = RequestStatus.PROCESSED;
+    requestByHash[requestHash].status = RequestStatus.PROCESSED;
 
-    requestByHash[requestHash] = request;
-
-    emit RequestProcessed(
+    emit ServiceRequestProcessed(
       requestHash,
       orderId,
-      serviceId,
+      serviceOfferByRequestHash[requestHash].serviceId,
       customerSubstrateAddress,
       sellerSubstrateAddress,
       customerAddress,
