@@ -6,8 +6,8 @@ const inquirer = require('inquirer')
  * Currently this is for localhost testing only
  * The addresses below are always the same when deployed to localhost hardhat network
  * */
-const ERC20_TOKEN_ADDRESS = '0x5fbdb2315678afecb367f032d93f642f64180aa3'
-const ESCROW_CONTRACT_ADDRESS = '0xe7f1725e7734ce288f8367e1bb143e90bb3f0512'
+const ERC20_TOKEN_ADDRESS = '0x5592ec0cfb4dbc12d3ab100b257153436a1f0fea'
+const ESCROW_CONTRACT_ADDRESS = '0xe1E2e5Ae02bb01Fbf8d4ab1273C0531aA2FCe2BD'
 const SERVICE_REQUEST_CONTRACT_ADDRESS = '0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0'
 
 /**
@@ -41,7 +41,7 @@ function promptQuestions() {
 }
 
 async function main() {
-  const provider = new ethers.providers.JsonRpcProvider();
+  const provider = new ethers.providers.JsonRpcProvider('https://rinkeby.infura.io/v3/975c178197104ee8b101e705ad21d170');
   const escrow = new hre.ethers.Contract(
     ESCROW_CONTRACT_ADDRESS,
     escrowABI,
@@ -55,6 +55,8 @@ async function main() {
 
   const accounts = await hre.ethers.getSigners();
   const signer = accounts[0]
+
+  // console.log('signer: ',signer)
 
   const escrowWithSigner = escrow.connect(signer)
   const erc20WithSigner = erc20.connect(signer)
@@ -76,9 +78,11 @@ async function main() {
   qcPrice = ethers.utils.parseUnits(qcPrice+".0")
   payAmount = ethers.utils.parseUnits(payAmount+".0")
 
+  console.log('transaction: approve')
   const approveTx = await erc20WithSigner.approve(escrow.address, payAmount);
   await approveTx.wait();
 
+  console.log('transaction: payOrder')
   const orderPaidTx = await escrowWithSigner.payOrder(
     orderId,
     serviceId,

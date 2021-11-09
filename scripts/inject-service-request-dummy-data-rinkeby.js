@@ -3,8 +3,8 @@
  * The addresses below are always the same when deployed to localhost hardhat network
  * */
 const ERC20_TOKEN_ADDRESS = '0x5592ec0cfb4dbc12d3ab100b257153436a1f0fea'
-const ESCROW_CONTRACT_ADDRESS = '0x3d10E496aDb26B9b8527690E577F6c934995a9A9'
-const SERVICE_REQUEST_CONTRACT_ADDRESS = '0x8673AA355b8a6a56330F911CA99c0353ABdfe111'
+const ESCROW_CONTRACT_ADDRESS = '0xbbdcd72A15633628e1F453690744d5DdbebE0F00'
+const SERVICE_REQUEST_CONTRACT_ADDRESS = '0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9'
 
 const hre = require('hardhat')
 const serviceRequestContractABI = require('../artifacts/contracts/ServiceRequest.sol/ServiceRequest.json').abi
@@ -15,8 +15,8 @@ const SERVICE_CATEGORIES = [
   "Genetic Counseling", 
   "Single Nucleotida Polymorphism (SNP) Microarray", 
   "Targeted Gene Panel Sequencing", 
-  "Whole-Exome Sequencing", 
-  "Whole-Genome Sequencing", 
+  "Whole Exome Sequencing", 
+  "Whole Genome Sequencing", 
   "Other"
 ]
 
