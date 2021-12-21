@@ -5,7 +5,7 @@ import "hardhat/console.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract Escrow {
-  enum OrderStatus { PAID_PARTIAL, PAID, FULFILLED, REFUNDED }
+  enum OrderStatus { PAID, FULFILLED, REFUNDED }
 
   struct Order {
     bytes32 orderId;
@@ -42,7 +42,6 @@ contract Escrow {
   // Seller Substrate Address -> Order[]
   mapping(bytes32 => bytes32[]) public ordersBySellerSubstrateAddress;
 
-  event OrderPaidPartial(Order order);
   event OrderPaid(Order order);
   event OrderRefunded(Order order);
   event OrderFulfilled(Order order);
@@ -94,21 +93,15 @@ contract Escrow {
 
     require(testingPrice != 0, "Testing Price cannot be 0");
     require(qcPrice != 0, "QC Price cannot be 0");
-
-    // TODO: Handle overpayment
+    
+    uint totalPrice = testingPrice + qcPrice;
+    require(totalPrice == payAmount, "Total Price should be equal to Pay Amount");
 
     // Transfer erc20 token from sender to this contract
     require(_token.transferFrom(msg.sender, address(this), payAmount), "Transfer to escrow failed");
 
-    uint totalPrice = testingPrice + qcPrice;
-
     OrderStatus orderStatus;
-    if (payAmount < totalPrice) {
-      orderStatus = OrderStatus.PAID_PARTIAL;
-    }
-    if (payAmount == totalPrice) {
-      orderStatus = OrderStatus.PAID;
-    }
+    orderStatus = OrderStatus.PAID;
     
     Order memory order = Order(
       orderId,
@@ -137,11 +130,6 @@ contract Escrow {
 
     orderCount++;
 
-    if (order.status == OrderStatus.PAID_PARTIAL) {
-      emit OrderPaidPartial(order);
-      return;
-    }
-
     emit OrderPaid(order);
   }
 
@@ -166,21 +154,10 @@ contract Escrow {
     order.amountPaid = totalPaid;
 
     OrderStatus orderStatus;
-    if (totalPaid < totalPrice) {
-      orderStatus = OrderStatus.PAID_PARTIAL;
-    }
-    if (totalPaid == totalPrice) {
-      orderStatus = OrderStatus.PAID;
-    }
+    orderStatus = OrderStatus.PAID;
     order.status = orderStatus;
 
     orderByOrderId[orderId] = order;
-
-    if (order.status == OrderStatus.PAID_PARTIAL) {
-      emit OrderPaidPartial(order);
-      return;
-    }
-
     emit OrderPaid(order);
   }
 

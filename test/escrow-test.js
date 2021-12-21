@@ -30,10 +30,9 @@ describe('Escrow', function () {
   /**
    * Order Status Enums
    * */
-  const PAID_PARTIAL = 0
-  const PAID = 1
-  const FULFILLED = 2
-  const REFUNDED = 3
+  const PAID = 0
+  const FULFILLED = 1
+  const REFUNDED = 2
 
   before(async function () {
     /**
@@ -214,7 +213,7 @@ describe('Escrow', function () {
 
   it("Only Escrow account can fulfill a order (Updates order status to fulfilled)", async function () {
     /**
-     * enum RequestStatus { PAID_PARTIAL, PAID, FULFILLED, REFUNDED }
+     * enum RequestStatus { PAID, FULFILLED, REFUNDED }
      * */
     const orderIds = await contract.getAllOrders();
     const orderId = orderIds[0];
@@ -255,7 +254,7 @@ describe('Escrow', function () {
 
   it("Only Escrow account can refund a order (Updates order status to refunded)", async function () {
     /**
-     * enum RequestStatus { PAID_PARTIAL, PAID, FULFILLED, REFUNDED }
+     * enum RequestStatus { PAID, FULFILLED, REFUNDED }
      * */
     const orderIds = await contract.getAllOrders();
     const orderId = orderIds[1];
@@ -293,70 +292,70 @@ describe('Escrow', function () {
     expect(sellerBalanceAfter.toString()).to.equal(sellerBalanceBefore.add(qcPrice).toString())
   })
 
-  it("Order can be paid partially", async function () {
-    /**
-     * enum RequestStatus { PAID_PARTIAL, PAID, FULFILLED, REFUNDED }
-     * */
-    const payAmount = ethers.utils.parseUnits("5.0")
+  // it("Order can be paid partially", async function () {
+  //   /**
+  //    * enum RequestStatus { PAID_PARTIAL, PAID, FULFILLED, REFUNDED }
+  //    * */
+  //   const payAmount = ethers.utils.parseUnits("5.0")
 
-    const contractWithSigner = contract.connect(customerAccount)
-    const orderPaidTx = await contractWithSigner.payOrder(
-      orderId_2,
-      serviceId_2,
-      customerSubstrateAddress,
-      sellerSubstrateAddress,
-      customerAccount.address,
-      sellerAccount.address,
-      dnaSampleTrackingId_2,
-      testingPrice,
-      qcPrice,
-      payAmount
-    )
-    const receipt = await orderPaidTx.wait()
-    const events = receipt.events.filter((x) => x.event == "OrderPaidPartial");
-    expect(events.length > 0).to.equal(true);
-    // Get the request data from the event
-    const order = events[0].args[0]
-    expect(order.status).to.equal(PAID_PARTIAL)
-    expect(order.amountPaid.toString()).to.equal(payAmount.toString())
-  })
+  //   const contractWithSigner = contract.connect(customerAccount)
+  //   const orderPaidTx = await contractWithSigner.payOrder(
+  //     orderId_2,
+  //     serviceId_2,
+  //     customerSubstrateAddress,
+  //     sellerSubstrateAddress,
+  //     customerAccount.address,
+  //     sellerAccount.address,
+  //     dnaSampleTrackingId_2,
+  //     testingPrice,
+  //     qcPrice,
+  //     payAmount
+  //   )
+  //   const receipt = await orderPaidTx.wait()
+  //   const events = receipt.events.filter((x) => x.event == "OrderPaidPartial");
+  //   expect(events.length > 0).to.equal(true);
+  //   // Get the request data from the event
+  //   const order = events[0].args[0]
+  //   expect(order.status).to.equal(PAID_PARTIAL)
+  //   expect(order.amountPaid.toString()).to.equal(payAmount.toString())
+  // })
 
-  it("Partially paid order can be topped up", async function () {
-    const order = await contract.getOrderByOrderId(orderId_2)
-    let amountPaidBefore = order.amountPaid
+  // it("Partially paid order can be topped up", async function () {
+  //   const order = await contract.getOrderByOrderId(orderId_2)
+  //   let amountPaidBefore = order.amountPaid
 
-    // Total Price should be 13
-    // Pay partially by 5
-    let payAmount = ethers.utils.parseUnits("5.0")
-    const contractWithSigner = contract.connect(customerAccount)
-    let tx = await contractWithSigner.topUpOrderPayment(
-      orderId_2,
-      payAmount
-    )
-    let receipt = await tx.wait()
-    let events = receipt.events.filter((x) => x.event == "OrderPaidPartial");
-    expect(events.length > 0).to.equal(true);
-    // Get the request data from the event
-    let arg = events[0].args[0]
-    expect(arg.status).to.equal(PAID_PARTIAL)
-    expect(arg.amountPaid.toString()).to.equal(amountPaidBefore.add(payAmount).toString())
+  //   // Total Price should be 13
+  //   // Pay partially by 5
+  //   let payAmount = ethers.utils.parseUnits("5.0")
+  //   const contractWithSigner = contract.connect(customerAccount)
+  //   let tx = await contractWithSigner.topUpOrderPayment(
+  //     orderId_2,
+  //     payAmount
+  //   )
+  //   let receipt = await tx.wait()
+  //   let events = receipt.events.filter((x) => x.event == "OrderPaidPartial");
+  //   expect(events.length > 0).to.equal(true);
+  //   // Get the request data from the event
+  //   let arg = events[0].args[0]
+  //   expect(arg.status).to.equal(PAID_PARTIAL)
+  //   expect(arg.amountPaid.toString()).to.equal(amountPaidBefore.add(payAmount).toString())
 
-    // Pay partially by 3
-    // Order should be fully paid
-    amountPaidBefore = arg.amountPaid
-    payAmount = ethers.utils.parseUnits("3.0")
-    tx = await contractWithSigner.topUpOrderPayment(
-      orderId_2,
-      payAmount
-    )
-    receipt = await tx.wait()
-    events = receipt.events.filter((x) => x.event == "OrderPaid");
-    expect(events.length > 0).to.equal(true);
-    // Get the request data from the event
-    arg = events[0].args[0]
-    expect(arg.status).to.equal(PAID)
-    expect(arg.amountPaid.toString()).to.equal(amountPaidBefore.add(payAmount).toString())
-  })
+  //   // Pay partially by 3
+  //   // Order should be fully paid
+  //   amountPaidBefore = arg.amountPaid
+  //   payAmount = ethers.utils.parseUnits("3.0")
+  //   tx = await contractWithSigner.topUpOrderPayment(
+  //     orderId_2,
+  //     payAmount
+  //   )
+  //   receipt = await tx.wait()
+  //   events = receipt.events.filter((x) => x.event == "OrderPaid");
+  //   expect(events.length > 0).to.equal(true);
+  //   // Get the request data from the event
+  //   arg = events[0].args[0]
+  //   expect(arg.status).to.equal(PAID)
+  //   expect(arg.amountPaid.toString()).to.equal(amountPaidBefore.add(payAmount).toString())
+  // })
 
   it("Excess payment is refunded back to sender", async function () {
     // TODO:

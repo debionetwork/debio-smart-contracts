@@ -7,7 +7,7 @@ const inquirer = require('inquirer')
  * The addresses below are always the same when deployed to localhost hardhat network
  * */
 const ERC20_TOKEN_ADDRESS = '0x5592ec0cfb4dbc12d3ab100b257153436a1f0fea'
-const ESCROW_CONTRACT_ADDRESS = '0xe1E2e5Ae02bb01Fbf8d4ab1273C0531aA2FCe2BD'
+const ESCROW_CONTRACT_ADDRESS = '0x486634123138a5eD9f3420AeAD7eB1197B5E882a'
 const SERVICE_REQUEST_CONTRACT_ADDRESS = '0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0'
 
 /**
@@ -55,8 +55,6 @@ async function main() {
 
   const accounts = await hre.ethers.getSigners();
   const signer = accounts[0]
-
-  // console.log('signer: ',signer)
 
   const escrowWithSigner = escrow.connect(signer)
   const erc20WithSigner = erc20.connect(signer)

@@ -22,20 +22,20 @@ async function main() {
   const escrowContract = await EscrowContract.deploy(DAITokenAddress, process.env.ESCROW_WALLET_ADDRESS)
   await escrowContract.deployed();
 
-  const ServiceRequestContract = await hre.ethers.getContractFactory("ServiceRequest");
-  const serviceRequestContract = await ServiceRequestContract.deploy(
-    DAITokenAddress,
-    process.env.DAOGENICS_WALLET_ADDRESS,
-    escrowContract.address,
-  );
-  await serviceRequestContract.deployed();
+  // const ServiceRequestContract = await hre.ethers.getContractFactory("ServiceRequest");
+  // const serviceRequestContract = await ServiceRequestContract.deploy(
+  //   DAITokenAddress,
+  //   process.env.DAOGENICS_WALLET_ADDRESS,
+  //   escrowContract.address,
+  // );
+  // await serviceRequestContract.deployed();
 
   console.log('Contracts deployed!');
   if (networkName == 'localhost') {
     console.log('Deployed ERC20 contract address', erc20.address)
   }
   console.log('Deployed Escrow Contract address', escrowContract.address);
-  console.log('Deployed ServiceRequest Contract address', serviceRequestContract.address);
+  // console.log('Deployed ServiceRequest Contract address', serviceRequestContract.address);
 
   // Save the address of deployed contract at the particular network
   let filename = `${networkName}-escrow`;
@@ -43,10 +43,10 @@ async function main() {
   await fh.writeFile(String(escrowContract.address))
   await fh.close();
 
-  filename = `${networkName}-service-request`;
-  fh = await open(path.join('deployed-addresses', filename), 'w');
-  await fh.writeFile(String(serviceRequestContract.address))
-  await fh.close();
+  // filename = `${networkName}-service-request`;
+  // fh = await open(path.join('deployed-addresses', filename), 'w');
+  // await fh.writeFile(String(serviceRequestContract.address))
+  // await fh.close();
 }
 
 // We recommend this pattern to be able to use async/await everywhere
