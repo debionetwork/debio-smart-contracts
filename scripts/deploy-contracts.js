@@ -6,7 +6,11 @@ require('dotenv').config();
 async function main() {
   const networkName = hre.network.name;
   const networkUrl = hre.network.config.url;
+  const [deployer] = await ethers.getSigners();
+
   console.log('Deploying to network', networkName, networkUrl);
+  console.log("Deploying contracts with the account:", deployer.address);
+  console.log("Account balance:", (await deployer.getBalance()).toString());
 
   let DAITokenAddress = process.env[`${networkName.toUpperCase()}_NETWORK_DAI_TOKEN_ADDRESS`];
   

@@ -24,19 +24,22 @@ task("private-keys", "Print list of private keys", async (_, hre) => {
  */
 module.exports = {
   solidity: "0.8.4",
+  settings: {
+    optimizer: {
+      enabled: true,
+      runs: 1000,
+    },
+  },
   networks: { 
     mainnet: {
       url: process.env.MAINNET_RPC_URL,
-      accounts: [process.env.DEPLOYER_PRIVATE_KEY]
-    },
-    debio: {
-      url: "https://testnet.theapps.dev/rpc",
-      accounts: [process.env.DEPLOYER_PRIVATE_KEY]
+      chaindId: 1,
+      accounts: [process.env.MAINNET_DEPLOYER_PRIVATE_KEY]
     },
     rinkeby: {
       url: process.env.RINKEBY_RPC_URL,
       chainId: 4,
-      accounts: [process.env.DEPLOYER_PRIVATE_KEY]
+      accounts: [process.env.RINKEBY_DEPLOYER_PRIVATE_KEY]
     },
     ropsten: {
       url: process.env.ROPSTEN_RPC_URL,

@@ -52,6 +52,8 @@ contract Escrow {
     // Testing price amount transferred to buyer should be reduced by gas price
 
     require(msg.sender == _escrowAdmin, "Only Escrow Admin allowed to do refund");
+    // Order with FULFILLED and REFUNDED status can't be processed
+    require(orderByOrderId[orderId].status == OrderStatus.PAID, "Only Order that has PAID status can be fulfilled");
     // Transfer QC price to lab
     require(_token.transfer(orderByOrderId[orderId].sellerAddress, orderByOrderId[orderId].qcPrice), "QC Payment to lab failed");
     // Refund customer
@@ -68,9 +70,17 @@ contract Escrow {
     // Total price amount transferred to seller should be reduced by gas price
 
     require(msg.sender == _escrowAdmin, "Only Escrow Admin allowed to do order fulfillment");
-    // Transfer testing and QC price to lab
+    // Order with FULFILLED and REFUNDED status can't be processed
+    require(orderByOrderId[orderId].status == OrderStatus.PAID, "Only Order that has PAID status can be fulfilled");
+    
     uint totalPrice = orderByOrderId[orderId].testingPrice + orderByOrderId[orderId].qcPrice;
-    require(_token.transfer(orderByOrderId[orderId].sellerAddress, totalPrice), "Payment to lab failed");
+    // Calculate 5% of the totalPrice
+    uint debioFee = totalPrice * 5 / 100;
+    uint priceSubtracted = totalPrice - debioFee;
+    // Transfer testing and QC price to lab
+    require(_token.transfer(orderByOrderId[orderId].sellerAddress, priceSubtracted), "Payment to lab failed");
+    // Transfer 5% of debioFee to admin
+    require(_token.transfer(_escrowAdmin, debioFee), "Payment to admin failed");
     
     // If all is done, status is fulfilled
     orderByOrderId[orderId].status = OrderStatus.FULFILLED;
